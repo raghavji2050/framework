@@ -226,6 +226,38 @@ class EloquentDeclaredAttributesTest extends DatabaseTestCase
         $invoice->quantity;
     }
 
+    public function testPropertyDefaultsAreAppliedThroughSetAttribute()
+    {
+        $invoice = new DeclaredInvoice;
+
+        $this->assertSame(DeclaredInvoiceStatus::Draft, $invoice->status);
+        $this->assertSame('draft', $invoice->getAttributes()['status']);
+        $this->assertSame('inv-0', $invoice->getAttributes()['reference']);
+        $this->assertSame('INV-0', $invoice->reference);
+    }
+
+    public function testConstructorValuesOverridePropertyDefaults()
+    {
+        $invoice = new DeclaredInvoice([
+            'reference' => '  inv-9 ',
+            'status' => DeclaredInvoiceStatus::Paid,
+        ]);
+
+        $this->assertSame(DeclaredInvoiceStatus::Paid, $invoice->status);
+        $this->assertSame('INV-9', $invoice->reference);
+    }
+
+    public function testHydratedModelsUseDatabaseValuesInsteadOfPropertyDefaults()
+    {
+        $invoice = DeclaredInvoice::create($this->attributes());
+
+        $fresh = DeclaredInvoice::find($invoice->id);
+
+        $this->assertSame(DeclaredInvoiceStatus::Paid, $fresh->status);
+        $this->assertSame('INV-1', $fresh->reference);
+        $this->assertFalse($fresh->isDirty());
+    }
+
     public function testInvalidDeclarationsThrow()
     {
         $this->expectException(LogicException::class);
@@ -275,8 +307,8 @@ class DeclaredInvoice extends Model
     protected $hidden = ['secret'];
 
     #[Column] public ?int $id;
-    #[Column] public string $reference;
-    #[Column] public DeclaredInvoiceStatus $status;
+    #[Column] public string $reference = ' inv-0 ';
+    #[Column] public DeclaredInvoiceStatus $status = DeclaredInvoiceStatus::Draft;
     #[Column] public int $quantity;
     #[Column] public float $total;
     #[Column] public bool $paid;
@@ -304,7 +336,7 @@ class DeclaredInvalidModel extends Model
 {
     use HasDeclaredAttributes;
 
-    #[Column] public string $name = 'default';
+    #[Column] public readonly string $name;
 }
 
 class UndeclaredInvoice extends Model

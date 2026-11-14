@@ -20,6 +20,13 @@ trait HasDeclaredAttributes
     protected static $declaredAttributes = [];
 
     /**
+     * The default values for declared attributes, keyed by model class.
+     *
+     * @var array<class-string, array<string, mixed>>
+     */
+    protected static $declaredAttributeDefaults = [];
+
+    /**
      * Initialize the HasDeclaredAttributes trait.
      *
      * @return void
@@ -36,6 +43,12 @@ trait HasDeclaredAttributes
         }
 
         $this->casts = array_merge(array_filter($declared), $this->casts);
+
+        foreach (static::$declaredAttributeDefaults[static::class] ?? [] as $name => $value) {
+            if (! array_key_exists($name, $this->attributes)) {
+                $this->setAttribute($name, $value);
+            }
+        }
     }
 
     /**
@@ -52,6 +65,7 @@ trait HasDeclaredAttributes
         }
 
         $declared = [];
+        $defaults = [];
 
         foreach ((new ReflectionClass(static::class))->getProperties(ReflectionProperty::IS_PUBLIC) as $property) {
             if ($property->getAttributes(Column::class) === []) {
@@ -59,15 +73,21 @@ trait HasDeclaredAttributes
             }
 
             if ($property->isStatic() || $property->isReadOnly() || $property->hasHooks() ||
-                ! $property->hasType() || $property->hasDefaultValue()) {
+                ! $property->hasType()) {
                 throw new LogicException(sprintf(
-                    'Column [%s::$%s] must be a typed, non-static, non-readonly property without a default value or hooks.',
+                    'Column [%s::$%s] must be a typed, non-static, non-readonly property without hooks.',
                     static::class, $property->getName()
                 ));
             }
 
             $declared[$property->getName()] = static::implicitCastForType($property->getType());
+
+            if ($property->hasDefaultValue()) {
+                $defaults[$property->getName()] = $property->getDefaultValue();
+            }
         }
+
+        static::$declaredAttributeDefaults[static::class] = $defaults;
 
         return static::$declaredAttributes[static::class] = $declared;
     }
