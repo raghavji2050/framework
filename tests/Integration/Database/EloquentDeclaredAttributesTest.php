@@ -64,7 +64,17 @@ class EloquentDeclaredAttributesTest extends DatabaseTestCase
         $this->assertNull($invoice->note);
     }
 
-    public function testPropertyTypesActAsImplicitCasts()
+    public function testDeclaredNamesAreCachedPerClass()
+    {
+        $first = DeclaredInvoice::declaredAttributes();
+        $second = DeclaredInvoice::declaredAttributes();
+
+        $this->assertSame($first, $second);
+        $this->assertContains('quantity', $first);
+        $this->assertContains('reference', $first);
+    }
+
+    public function testDeclaredPropertiesRoundTripWithExplicitCasts()
     {
         $invoice = DeclaredInvoice::create($this->attributes());
 
@@ -84,7 +94,7 @@ class EloquentDeclaredAttributesTest extends DatabaseTestCase
         $this->assertSame('paid', DB::table('declared_invoices')->value('status'));
     }
 
-    public function testExplicitCastsTakePrecedenceOverImplicitCasts()
+    public function testExplicitCastsStillApplyToDeclaredProperties()
     {
         $casts = (new DeclaredInvoice)->getCasts();
 
@@ -226,44 +236,21 @@ class EloquentDeclaredAttributesTest extends DatabaseTestCase
         $invoice->quantity;
     }
 
-    public function testPropertyDefaultsAreAppliedThroughSetAttribute()
-    {
-        $invoice = new DeclaredInvoice;
-
-        $this->assertSame(DeclaredInvoiceStatus::Draft, $invoice->status);
-        $this->assertSame('draft', $invoice->getAttributes()['status']);
-        $this->assertSame('inv-0', $invoice->getAttributes()['reference']);
-        $this->assertSame('INV-0', $invoice->reference);
-    }
-
-    public function testConstructorValuesOverridePropertyDefaults()
-    {
-        $invoice = new DeclaredInvoice([
-            'reference' => '  inv-9 ',
-            'status' => DeclaredInvoiceStatus::Paid,
-        ]);
-
-        $this->assertSame(DeclaredInvoiceStatus::Paid, $invoice->status);
-        $this->assertSame('INV-9', $invoice->reference);
-    }
-
-    public function testHydratedModelsUseDatabaseValuesInsteadOfPropertyDefaults()
-    {
-        $invoice = DeclaredInvoice::create($this->attributes());
-
-        $fresh = DeclaredInvoice::find($invoice->id);
-
-        $this->assertSame(DeclaredInvoiceStatus::Paid, $fresh->status);
-        $this->assertSame('INV-1', $fresh->reference);
-        $this->assertFalse($fresh->isDirty());
-    }
-
     public function testInvalidDeclarationsThrow()
     {
-        $this->expectException(LogicException::class);
-        $this->expectExceptionMessage('DeclaredInvalidModel::$name');
-
-        new DeclaredInvalidModel;
+        foreach ([
+            DeclaredReadonlyModel::class => 'DeclaredReadonlyModel::$name',
+            DeclaredUntypedModel::class => 'DeclaredUntypedModel::$name',
+            DeclaredDefaultModel::class => 'DeclaredDefaultModel::$name',
+            DeclaredStaticModel::class => 'DeclaredStaticModel::$name',
+        ] as $class => $needle) {
+            try {
+                new $class;
+                $this->fail("{$class} should have thrown a LogicException.");
+            } catch (LogicException $e) {
+                $this->assertStringContainsString($needle, $e->getMessage());
+            }
+        }
     }
 
     public function testModelsWithoutTheTraitAreUntouched()
@@ -307,8 +294,8 @@ class DeclaredInvoice extends Model
     protected $hidden = ['secret'];
 
     #[Column] public ?int $id;
-    #[Column] public string $reference = ' inv-0 ';
-    #[Column] public DeclaredInvoiceStatus $status = DeclaredInvoiceStatus::Draft;
+    #[Column] public string $reference;
+    #[Column] public DeclaredInvoiceStatus $status;
     #[Column] public int $quantity;
     #[Column] public float $total;
     #[Column] public bool $paid;
@@ -320,7 +307,15 @@ class DeclaredInvoice extends Model
 
     protected function casts(): array
     {
-        return ['due_at' => 'date'];
+        return [
+            'status' => DeclaredInvoiceStatus::class,
+            'quantity' => 'integer',
+            'total' => 'float',
+            'paid' => 'boolean',
+            'meta' => 'array',
+            'issued_at' => 'immutable_datetime',
+            'due_at' => 'date',
+        ];
     }
 
     protected function reference(): Attribute
@@ -332,11 +327,33 @@ class DeclaredInvoice extends Model
     }
 }
 
-class DeclaredInvalidModel extends Model
+class DeclaredReadonlyModel extends Model
 {
     use HasDeclaredAttributes;
 
     #[Column] public readonly string $name;
+}
+
+class DeclaredUntypedModel extends Model
+{
+    use HasDeclaredAttributes;
+
+    #[Column] public $name;
+}
+
+class DeclaredDefaultModel extends Model
+{
+    use HasDeclaredAttributes;
+
+    #[Column] public string $name = 'n/a';
+}
+
+class DeclaredStaticModel extends Model
+{
+    use HasDeclaredAttributes;
+
+    #[Column]
+    public static string $name;
 }
 
 class UndeclaredInvoice extends Model
